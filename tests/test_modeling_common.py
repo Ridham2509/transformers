@@ -138,6 +138,7 @@ if is_torch_available():
     from torch import nn
 
     from transformers import MODEL_MAPPING
+    from transformers.distributed.configuration_utils import DistributedConfig
     from transformers.distributed.parallel_utils import _get_parameter_plan
     from transformers.integrations.accelerate import compute_module_sizes
     from transformers.modeling_utils import load_state_dict
@@ -5028,6 +5029,48 @@ class ModelTesterMixin(ExportTesterMixin):
                 f"{model_class.__name__} ties `{head_name}` to its input embedding, so a tying checkpoint shards the "
                 "weight it reads and it needs a TP-plan entry of its own (`colwise_gather_output`)",
             )
+
+    def test_tied_weights_are_sharded_together(self):
+        """Tied weights are one parameter, so all of their modules must shard it on the same dim, or none: a tied head
+        over a replicated embedding gives wrong logits, and an embedding without a TP hook can't take a sharded weight.
+        Checks the plan resolved for tp>1, so it also covers models whose only rule is the head's, without a
+        `base_model_tp_plan`. Tying is a per-checkpoint flag, so it is enabled whatever the tester's default."""
+        # The weight dim each style shards: a linear weight is (out, in) and an embedding's is (vocab, hidden), so a
+        # colwise head and an `embedding_rowwise` embedding both shard the vocab. Other styles must match exactly.
+        sharded_weight_dim = {
+            "colwise": 0,
+            "colwise_rep": 0,
+            "colwise_gather_output": 0,
+            "embedding_rowwise": 0,
+            "rowwise": 1,
+            "rowwise_rep": 1,
+            "rowwise_split_input": 1,
+            "embedding_colwise": 1,
+            "replicate": None,
+            "replicated_with_grad_allreduce": None,
+        }
+        config, _ = self.model_tester.prepare_config_and_inputs_for_common()
+        for model_class in self.all_model_classes:
+            copied_config = copy.deepcopy(config)
+            copied_config.get_text_config(decoder=True).tie_word_embeddings = True
+            copied_config.tie_word_embeddings = True
+            model = model_class(copied_config)
+            if not model.tp_plan:
+                continue
+            tp_plan, _, _ = model._resolve_parallel_plans(DistributedConfig(tp_size=2))
+
+            # the resolved plan names concrete modules or parameters, without wildcards
+            def sharded_dim(name):
+                style = tp_plan.get(name, tp_plan.get(name.rpartition(".")[0]))
+                return sharded_weight_dim.get(style, style)
+
+            for target, source in model.all_tied_weights_keys.items():
+                self.assertEqual(
+                    sharded_dim(target),
+                    sharded_dim(source),
+                    f"{model_class.__name__} shards `{target}` and `{source}` differently at tp>1, but they are tied "
+                    f"(dims {sharded_dim(target)} and {sharded_dim(source)}, None is replicated)",
+                )
 
     def test_reverse_loading_mapping(self, check_keys_were_modified=True, skip_base_model=False):
         """Make sure we can load and save correctly the models having any weight renaming mapping or weight conversion

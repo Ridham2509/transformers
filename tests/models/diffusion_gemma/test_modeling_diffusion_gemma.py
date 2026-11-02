@@ -302,6 +302,10 @@ class DiffusionGemmaVisionText2TextModelTest(
         # TODO(joaogante): explore TP config after other issues are sorted
         pass
 
+    @unittest.skip(reason="TP is not supported yet: the decoder, tied to the encoder's text model, gets no TP plan")
+    def test_tied_weights_are_sharded_together(self):
+        pass
+
     @unittest.skip(reason="Hard to specify `self.model_split_percents` due to tied weights. Skip for now.")
     def test_cpu_offload(self):
         pass

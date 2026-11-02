@@ -319,6 +319,12 @@ class KyutaiSpeechToTextModelTest(ModelTesterMixin, GenerationTesterMixin, Pipel
     def test_cpu_offload(self):
         pass
 
+    @unittest.skip(
+        reason="The head (text vocab) and the embedding (text and audio vocab) differ in shape, so can't tie"
+    )
+    def test_tied_weights_are_sharded_together(self):
+        pass
+
     @unittest.skip(reason="Some undefined behavior encountered with test versions of this model. Skip for now.")
     def test_disk_offload_bin(self):
         pass
