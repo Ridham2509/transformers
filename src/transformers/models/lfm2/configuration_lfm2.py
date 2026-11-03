@@ -53,6 +53,17 @@ class Lfm2Config(PreTrainedConfig):
 
     model_type = "lfm2"
     keys_to_ignore_at_inference = ["past_key_values"]
+    base_model_tp_plan = {
+        "layers.*.self_attn.q_proj": "colwise",
+        "layers.*.self_attn.k_proj": "colwise",
+        "layers.*.self_attn.v_proj": "colwise",
+        "layers.*.self_attn.q_layernorm": "replicated_with_grad_allreduce",
+        "layers.*.self_attn.k_layernorm": "replicated_with_grad_allreduce",
+        "layers.*.self_attn.out_proj": "rowwise",
+        "layers.*.feed_forward.w1": "colwise",
+        "layers.*.feed_forward.w3": "colwise",
+        "layers.*.feed_forward.w2": "rowwise",
+    }
     default_theta = 1000000.0
 
     vocab_size: int = 65536
